@@ -1,4 +1,4 @@
-<!--
+<?xml version="1.0" encoding="UTF-8"?><!--
 Copyright BRAINTRIBE TECHNOLOGY GMBH, Austria, 2002-2022
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,8 +21,7 @@ limitations under the License.
     </parent>
     <artifactId>argo-exchange-processing</artifactId>
     <version>2.0.10</version>
-    <properties>
-    </properties>
+    <properties/>
     <licenses>
         <license>
             <name>Apache License, Version 2.0</name>
@@ -66,6 +65,11 @@ limitations under the License.
             <groupId>tribefire.extension.xmi</groupId>
             <artifactId>zargo-metamodel-converter</artifactId>
             <version>${V.tribefire.extension.xmi}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.braintribe.devrock</groupId>
+            <artifactId>dev-env-api</artifactId>
+            <version>${V.com.braintribe.devrock}</version>
         </dependency>
     </dependencies>
 </project>

@@ -37,18 +37,29 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
 import com.braintribe.cfg.Required;
 import com.braintribe.common.attribute.common.CallerEnvironment;
 import com.braintribe.common.lcd.Pair;
+import com.braintribe.devrock.env.api.DevEnvironment;
 import com.braintribe.devrock.mc.api.classpath.ClasspathResolutionContext;
 import com.braintribe.devrock.mc.api.commons.PartIdentifications;
+import com.braintribe.devrock.mc.api.repository.configuration.RepositoryConfigurationLocaterBuilder;
+import com.braintribe.devrock.mc.api.repository.configuration.RepositoryConfigurationLocator;
 import com.braintribe.devrock.mc.api.resolver.DependencyResolver;
+import com.braintribe.devrock.mc.core.configuration.RepositoryConfigurationLocators;
 import com.braintribe.devrock.mc.core.wirings.classpath.ClasspathResolverWireModule;
 import com.braintribe.devrock.mc.core.wirings.classpath.contract.ClasspathResolverContract;
+import com.braintribe.devrock.mc.core.wirings.configuration.contract.DevelopmentEnvironmentContract;
+import com.braintribe.devrock.mc.core.wirings.configuration.contract.RepositoryConfigurationLocatorContract;
+import com.braintribe.devrock.mc.core.wirings.env.configuration.EnvironmentSensitiveConfigurationWireModule;
 import com.braintribe.devrock.mc.core.wirings.maven.configuration.MavenConfigurationWireModule;
+import com.braintribe.devrock.mc.core.wirings.resolver.ArtifactDataResolverModule;
+import com.braintribe.devrock.mc.core.wirings.resolver.contract.ArtifactDataResolverContract;
+import com.braintribe.devrock.mc.core.wirings.venv.contract.VirtualEnvironmentContract;
 import com.braintribe.exception.Exceptions;
 import com.braintribe.model.artifact.analysis.AnalysisArtifact;
 import com.braintribe.model.artifact.analysis.AnalysisArtifactResolution;
@@ -71,10 +82,17 @@ import com.braintribe.model.resource.FileResource;
 import com.braintribe.model.resource.Resource;
 import com.braintribe.utils.IOTools;
 import com.braintribe.utils.classloader.ReverseOrderURLClassLoader;
+import com.braintribe.utils.collection.impl.AttributeContexts;
+import com.braintribe.utils.paths.UniversalPath;
 import com.braintribe.ve.api.VirtualEnvironment;
 import com.braintribe.wire.api.Wire;
 import com.braintribe.wire.api.context.WireContext;
+import com.braintribe.wire.api.context.WireContextBuilder;
+import com.braintribe.wire.api.module.WireModule;
+import com.braintribe.wire.api.module.WireTerminalModule;
+import com.braintribe.wire.api.util.Lists;
 
+import tribefire.extension.xmi.argo.exchange.processor.ArgoExchangeProcessor.ArgoExchengeResolutionWireModule;
 import tribefire.extension.xmi.model.exchange.api.ArgoExchangeRequest;
 import tribefire.extension.xmi.model.exchange.api.ExportModelToZargo;
 
@@ -255,8 +273,14 @@ public class ArgoExchangeProcessor extends AbstractDispatchingServiceProcessor<A
 //		cfg.setRelevantPartTuples(PartTupleProcessor.createJarPartTuple());
 //		cfg.setResolvingInstant( ResolvingInstant.posthoc);
 //		cfg.setVirtualEnvironment(virtualEnvironment);
+		
+		Optional<DevEnvironment> devEnvironment = AttributeContexts.peek().findAttribute(DevEnvironment.class);
 
-		try (WireContext<ClasspathResolverContract> wireContext = Wire.context(ClasspathResolverWireModule.INSTANCE, new MavenConfigurationWireModule(virtualEnvironment)) ) {
+		File devEnvRoot = devEnvironment.map(DevEnvironment::getRootPath).orElse(null);
+
+		ArgoExchengeResolutionWireModule wireModule = new ArgoExchengeResolutionWireModule(devEnvRoot);
+
+		try (WireContext<ClasspathResolverContract> wireContext = Wire.context(wireModule) ) {
 //			String walkScopeId = UUID.randomUUID().toString();
 //			WalkerContext walkerContext = new WalkerContext();
 //			Walker enrichingWalker = wireContext.contract().enrichingWalker(walkerContext);
@@ -335,6 +359,47 @@ public class ArgoExchangeProcessor extends AbstractDispatchingServiceProcessor<A
 			throw Exceptions.unchecked(e, "Error while resolving model dependency: " + request.getModel());
 		}
 	}
+	
+	public class ArgoExchengeResolutionWireModule implements WireTerminalModule<ClasspathResolverContract> {
+
+		private final File devEnvFolder;
+
+		public ArgoExchengeResolutionWireModule(File devEnvFolder) {
+			this.devEnvFolder = devEnvFolder;
+		}
+
+		@Override
+		public List<WireModule> dependencies() {
+			return Lists.list( //
+					ClasspathResolverWireModule.INSTANCE, //
+					EnvironmentSensitiveConfigurationWireModule.INSTANCE //
+			);
+		}
+
+		@Override
+		public void configureContext(WireContextBuilder<?> contextBuilder) {
+			WireTerminalModule.super.configureContext(contextBuilder);
+			contextBuilder.bindContract(VirtualEnvironmentContract.class, () -> virtualEnvironment);
+			contextBuilder.bindContract(DevelopmentEnvironmentContract.class, () -> devEnvFolder);
+
+			RepositoryConfigurationLocaterBuilder repositoryConfigurationLocatorBuilder = RepositoryConfigurationLocators.build() //
+					.addDevEnvLocation(
+							UniversalPath.start(RepositoryConfigurationLocators.FOLDERNAME_ARTIFACTS).push("repository-configuration-devrock.yaml"));
+
+			repositoryConfigurationLocatorBuilder //
+					.addDevEnvLocation(UniversalPath.start(RepositoryConfigurationLocators.FOLDERNAME_ARTIFACTS)
+							.push(RepositoryConfigurationLocators.FILENAME_REPOSITORY_CONFIGURATION)) //
+					.addLocationEnvVariable(RepositoryConfigurationLocators.ENV_DEVROCK_REPOSITORY_CONFIGURATION) //
+					.addUserDirLocation(UniversalPath.start(RepositoryConfigurationLocators.FOLDERNAME_DEVROCK)
+							.push(RepositoryConfigurationLocators.FILENAME_REPOSITORY_CONFIGURATION));
+
+			RepositoryConfigurationLocator repositoryConfigurationLocator = repositoryConfigurationLocatorBuilder.done();
+
+			contextBuilder.bindContract(RepositoryConfigurationLocatorContract.class, () -> repositoryConfigurationLocator);
+		}
+
+	}
+
 	
 	private File getJarFile(AnalysisArtifact solution) {
 		Part jarPart = solution.getParts().get(PartIdentifications.jar.asString());
